@@ -6,13 +6,17 @@
 #
 #AUTHORS: Benoit Parmentier                                             
 #DATE CREATED: 03/15/2017 
-#DATE MODIFIED: 05/18/2017
+#DATE MODIFIED: 06/08/2017
 #Version: 1
 #PROJECT: AAG 2017
 #TO DO:
 #
 #COMMIT: modifying script to run on SESYNC HPC for testing and learning purpose
 #
+#Links to investigate: 
+#https://stackoverflow.com/questions/29784829/r-raster-package-split-image-into-multiples
+#
+
 #################################################################################################
 
 ###Loading R library and packages                                                      
@@ -47,7 +51,7 @@ library(psych) #pca/eigenvector decomposition functionalities
 function_preprocessing_and_analyses <- "fire_alaska_analyses_preprocessing_functions_03102017.R" #PARAM 1
 function_analyses <- "exercise2_fire_alaska_analyses_functions_03232017.R" #PARAM 1
 function_change_analysis <- "exercise2_change_analyses_functions_04082017b.R"
-script_path <- "/research-home/bparmentier/Data/slurm_test/scripts"
+script_path <- "/nfs/bparmentier-data/Data/slurm_test/scripts"
 source(file.path(script_path,function_preprocessing_and_analyses)) #source all functions used in this script 1.
 source(file.path(script_path,function_analyses)) #source all functions used in this script 1.
 source(file.path(script_path,function_change_analysis))
@@ -69,7 +73,7 @@ fire_poly_shp_fname <- "OVERLAY_ID_83_399_144_TEST_BURNT_83_144_399_reclassed.sh
 #ARGS 6
 NA_value <- -9999 #PARAM6
 #ARGS 7
-out_suffix <-"exercise2_05182017" #output suffix for the files and ouptu folder #PARAM 8
+out_suffix <-"exercise2_06082017" #output suffix for the files and ouptu folder #PARAM 8
 #ARGS 8
 create_out_dir_param=TRUE #PARAM9
 date_range <- c("2005.01.01","2005.12.31") #NDVI Alaska, year 2005 (this is a 16 days product)
