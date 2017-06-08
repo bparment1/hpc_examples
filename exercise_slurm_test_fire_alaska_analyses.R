@@ -73,7 +73,7 @@ fire_poly_shp_fname <- "OVERLAY_ID_83_399_144_TEST_BURNT_83_144_399_reclassed.sh
 #ARGS 6
 NA_value <- -9999 #PARAM6
 #ARGS 7
-out_suffix <-"exercise2_06082017" #output suffix for the files and ouptu folder #PARAM 8
+out_suffix <-"slurm_test_alaska_06082017" #output suffix for the files and ouptu folder #PARAM 8
 #ARGS 8
 create_out_dir_param=TRUE #PARAM9
 #ARGS 9
@@ -118,6 +118,9 @@ if(create_out_dir_param==TRUE){
   setwd(out_dir) #use previoulsy defined directory
 }
 
+
+##### PART I: DISPLAY AND EXPLORE DATA ##############
+
 ## Second list.files and create raster images stack
 
 lf_NDVI <- list.files(path=in_dir_NDVI, pattern="*.tif",full.names=T)
@@ -134,26 +137,24 @@ dataType(r_NDVI_ts) #Examine the data type used in the storing of data, this is 
 inMemory(r_NDVI_ts) #Is the data in memory? Raster package does not load in memory automatically.
 dim(r_NDVI_ts) #dimension of the raster object: rows, cols, layers/bands
 
-### Crop using the new tile ####
-crop_file_name <- paste("ndvi_","tile_",tile_index,".tif")
-crop(r_NDVI_ts,tile_spdf,crop_file_name)
-
-
-##### PART I: DISPLAY AND EXPLORE DATA ##############
-
 lf_var <- list.files(path=in_dir_var,pattern="*.tif$",full.names=T)
 r_var <- stack(lf_var) # create a raster stack, this is not directly stored in memory
 dim(r_var) #dimension of the stack with 
 plot(r_var)
 
+##### PART II: CROP TO PROCESSING AREA ##############
 
-######### PART IV: time series analyses #################
+### Crop using the new tile ####
+crop_file_name <- paste("ndvi_","tile_",tile_index,".tif",sep="")
+r_NDVI_ts <- crop(r_NDVI_ts,tile_spdf,crop_file_name,overwrite=T)
 
-#1. Extract time series from fire polygon
-#2. Visualize time series using zoo object
-#3. Compute ACF
-#4. Perform PCA
-#5. Generate movie using animate
+crop_r_var_file_name <- paste("r_var_","tile_",tile_index,".tif")
+r_var <- crop(r_var,tile_spdf,crop_r_var_file_name,overwrite=T,sep="")
+
+######### PART III: time series analyses #################
+
+# Perform PCA
+
 
 # Using LST time series perform similar analysis
 #r_NDVI_mean <- stackApply(r_NDVI_ts, indices=rep(1,23), fun=mean,na.rm=T) # works too but slower
@@ -226,7 +227,7 @@ pca_all <- as.data.frame(predict(pca_mod,df_NDVI_ts[,1:23])) ## Apply model obje
 coordinates(pca_all) <- df_NDVI_ts[,c("x","y")] #Assign coordinates
 class(pca_all) #Check type of class
 
-raster_name <- paste0("pc1_NDVI_2005.tif") #output raster name for component 1
+raster_name <- paste0("pc1_NDVI_2005_",out_suffix,".tif") #output raster name for component 1
 r_pc1<-rasterize(pca_all,r_NDVI_ts,"PC1",fun=min,overwrite=TRUE,
                   filename=raster_name)
 raster_name <- paste0("pc2_NDVI_2005.tif") #output raster name for component 2
