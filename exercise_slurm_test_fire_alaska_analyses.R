@@ -76,10 +76,20 @@ NA_value <- -9999 #PARAM6
 out_suffix <-"exercise2_06082017" #output suffix for the files and ouptu folder #PARAM 8
 #ARGS 8
 create_out_dir_param=TRUE #PARAM9
+#ARGS 9
 date_range <- c("2005.01.01","2005.12.31") #NDVI Alaska, year 2005 (this is a 16 days product)
 
-###
+#ARGS 10:
 
+#ARGS 11: TILE INDEX this is from the array
+
+# grab the array id value from the environment variable passed from sbatch
+slurm_arrayid <- Sys.getenv('SLURM_ARRAYID')
+# coerce the value to an integer
+tile_index <- as.numeric(slurm_arrayid)
+#tile_index <- 1  for testing
+
+###
 
 ## not set in the inputs args
 #region coordinate reference system
@@ -91,7 +101,9 @@ NA_flag_val <- NA_value #PARAM7
 
 ### PART I: READ AND PREPARE DATA FOR ANALYSES #######
 
+#get tile ID
 
+out_suffix <- paste("tile_",tile_index,out_suffix)
 ## First create an output directory
 
 if(is.null(out_dir)){
@@ -122,6 +134,11 @@ dataType(r_NDVI_ts) #Examine the data type used in the storing of data, this is 
 inMemory(r_NDVI_ts) #Is the data in memory? Raster package does not load in memory automatically.
 dim(r_NDVI_ts) #dimension of the raster object: rows, cols, layers/bands
 
+### Crop using the new tile ####
+crop_file_name <- paste("ndvi_","tile_",tile_index,".tif")
+crop(r_NDVI_ts,tile_spdf,crop_file_name)
+
+
 ##### PART I: DISPLAY AND EXPLORE DATA ##############
 
 lf_var <- list.files(path=in_dir_var,pattern="*.tif$",full.names=T)
@@ -129,176 +146,6 @@ r_var <- stack(lf_var) # create a raster stack, this is not directly stored in m
 dim(r_var) #dimension of the stack with 
 plot(r_var)
 
-##### 
-tb_freq <- freq(subset(r_var,6)) #  count of pixels by burn scars
-projection(r_var) #note that there is no projection assigned
-projection(r_var) <- CRS_reg
-
-ecoreg_spdf<-readOGR(dsn=in_dir_var,sub(".shp","",infile_ecoreg))
-proj4string(ecoreg_spdf)
-proj4string(ecoreg_spdf) <- CRS_reg
-plot(ecoreg_spdf)
-spplot(ecoreg_spdf)
-
-cat_names<-unique(ecoreg_spdf$ECO_NAME)
-
-nb_col<-length(unique(cat_names))
-# Wrong order in terms of the categories of ecoreg so assign them
-cat_names<-c("Alaska Peninsula montane taiga",
-             "Alaska St Elias Range tundra",
-             "Aleutian Islands tundra",
-             "Arctic coastal tundra",
-             "Arctic foothills tundra",
-             "Beringia lowland tundra",
-             "Beringia upland tundra",
-             "Brooks-British Range tundra",
-             "Cook Inlet taiga",
-             "Copper Plateau taiga",
-             "Interior Alaska-Yukon lowland taiga",
-             "Interior Yukon-Alaska alpine tundra",
-             "Northern Cordillera forests",
-             "Northern Pacific coastal forests",
-             "Ogilvie-Mackenzie alpine tundra",
-             "Pacific Coastal Mountain icefields and tundra",
-             "Rock and Ice")
-
-ecoreg_spdf$ECO_NAME<-cat_names
-#problem with extent, ecoreg_spdf is not the same extent as raster images!!
-lf_eco<-list.files(pattern="ecoregion_map.rst$")
-
-ecoreg_rast<-rasterize(ecoreg_spdf,r_var,"DATA_VALUE")
-data_name<-paste("ecoregion_map",sep="")
-raster_name<-paste(data_name,file_format, sep="") #Remember file_format ".tif" is set at the beginning
-writeRaster(ecoreg_rast, filename=raster_name,NAflag=-999,overwrite=TRUE)  #Writing the data in a raster file format...
-
-###An example of plottting raster data for publication:
-
-## Generate a color palette/color ramp
-col_eco<-rainbow(nb_col)
-col_eco[16]<-"brown"
-col_eco[11]<-"darkgreen"
-col_eco[7]<-"lightblue"
-col_eco[6]<-"grey"
-col_eco[12]<-"yellowgreen"
-
-plot(ecoreg_rast)
-plot(ecoreg_rast,col=col_eco)
-
-##Figure 1: wwf ecoregion
-res_pix<-960
-col_mfrow<-1
-row_mfrow<-1
-png(filename=paste("Figure1_paper1_wwf_ecoreg_Alaska",out_suffix,".png",sep=""),
-    width=col_mfrow*res_pix,height=row_mfrow*res_pix)
-#par(mfrow=c(1,2))
-
-
-plot(ecoreg_rast,col=col_eco,legend=FALSE,axes="FALSE")
-legend("topright",legend=cat_names,title="WWF ecoregions",
-       pt.cex=1.1,cex=1.1,fill=col_eco,bty="n")
-scale_position<-c(450000, 600000)
-arrow_position<-c(900000, 600000)
-
-label_scalebar<-c("0","125","250")
-scalebar(d=250000, xy=scale_position, type = 'bar', 
-         divs=3,label=label_scalebar,below="kilometers",
-         cex=1.8)
-#this work on non sp plot too
-SpatialPolygonsRescale(layout.north.arrow(), offset = arrow_position, 
-                       scale = 150000, fill=c("transparent","black"),plot.grid=FALSE)
-dev.off()
-
-####### PART II: Change analyses via image differencing and ratioing ##########
-
-## Studying change by image differencing
-#look for NDVI 2002 and 2009 and select each average
-
-r_NDVI_avg_2002 <- subset(r_var,4) #select layer 4 from raster stack
-r_NDVI_avg_2009 <- subset(r_var,5)
-
-r_diff_NDVI <- r_NDVI_avg_2009 - r_NDVI_avg_2002 #if negative Higher NDVI in 2002, hence decrease in NDVI over 2002-2009
-r_ratio_NDVI <- r_NDVI_avg_2009/r_NDVI_avg_2002
-
-plot(r_ratio_NDVI,col=matlab.like(255),zlim=c(0.5,1.5)) #zlim to control the range displayed
-plot(r_diff_NDVI,col=matlab.like(255),zlim=c(-0.5,0.5))
-
-### Quick histogram
-hist(r_diff_NDVI)
-##Adjust the bins
-
-hist_bins <- seq(-1,1,by=0.05)
-hist(r_diff_NDVI,breaks=hist_bins)
-hist(r_diff_NDVI,breaks=hist_bins,xlim=c(-0.3,0.3))
-
-plot(r_diff_NDVI,col=matlab.like(255),zlim=c(-0.2,0.2))
-
-## Threshold your inputs
-plot(r_diff_NDVI < -0.2)
-plot(r_diff_NDVI < -0.1)
-plot(r_diff_NDVI > 0.1)
-
-##Standardize images and define change
-#r <- as.data.frame(cellStats(x,mean))
-val_diff_mean <- cellStats(r_diff_NDVI,mean)
-val_diff_sd <- cellStats(r_diff_NDVI,sd)
-
-r_diff_NDVI_standardized <- (r_diff_NDVI - val_diff_mean)/val_diff_sd
-plot(r_diff_NDVI_standardized,col=matlab.like(255))#
-plot(r_diff_NDVI_standardized,col=matlab.like(255),zlim=c(-10,5))#
-
-hist_bins <- seq(-15,15,by=0.5)
-hist(r_diff_NDVI_standardized,breaks=hist_bins)
-hist(r_diff_NDVI_standardized,breaks=hist_bins,xlim=c(-5,5)) # zoom in
-
-hist(r_diff_NDVI_standardized)
-#shapiro.test(values(r_diff_NDVI_standardized))
-#qqnorm(values(r_diff_NDVI_standardized))
-
-r_change_NDVI_pos <-  r_diff_NDVI_standardized > 1.96
-r_change_NDVI_neg <-  r_diff_NDVI_standardized < -1.96
-plot(r_change_NDVI_pos)
-plot(r_change_NDVI_neg)
-
-writeRaster(r_change_NDVI_pos,"r_change_NDVI_pos_196.tif",overwrite=T)
-writeRaster(r_change_NDVI_neg,"r_change_NDVI_neg_196.tif",overwrite=T)
-
-### how to write a simple function for change analysis
-
-r_change_test2 <- generate_change_raster_fun(raster_1=r_NDVI_avg_2002,raster_2=r_NDVI_avg_2009,option="difference")
-
-####### PART III: Change analyses by comparing averages in fire polygons ##########
-
-##Extract values by fire scars
-
-r_fire_poly <- subset(r_var,6)
-plot(r_fire_poly)
-mean_fire_poly_tb <- zonal(stack(r_NDVI_avg_2002,r_NDVI_avg_2009),r_fire_poly,fun="mean") #mean square error
-mean_fire_poly_df <- as.data.frame(t(mean_fire_poly_tb[-1,-1]))
-
-names(mean_fire_poly_df) <- c("fire_pol1","fire_pol2","fire_pol3")
-#write.table(as.data.frame(mean_wind_zones_tb),"mean_wind_zones_tb.txt",sep=",")
-mean_fire_poly_df$year <- c(2002,2009)
-
-## Plot the average NDVI by burn scars
-#Note that the decrease in NDVI varies according to the burned intensity
-plot(fire_pol1 ~year,data=mean_fire_poly_df,type="b",
-     ylim=c(0.1,0.4),ylab="Average NDVI")
-lines(fire_pol2 ~year,data=mean_fire_poly_df,type="b",col="red")
-lines(fire_pol3 ~year,data=mean_fire_poly_df,type="b",col="blue")
-title("Average NDVI for fire polygons")
-names_vals <- c("pol1","pol2","pol3")
-legend("topright",legend=names_vals,
-       pt.cex=0.8,cex=1.1,col=c("black","red","blue"),
-       lty=c(1,1), # set legend symbol as lines
-       pch=1, #add circle symbol to line
-       lwd=c(1,1),bty="n")
-
-### Your turn: use albedo images to define image of changes, what do you think is a good threshold for change?
-
-#1.Select Albedo images
-#2.Peform differencing, and standardization
-#3.Generate Image of changes
-#4.Compute average by polygons of fire and compare to NDVI.
 
 ######### PART IV: time series analyses #################
 
@@ -318,54 +165,6 @@ mean_fire_NDVI_ts_df <- as.data.frame(t(mean_fire_NDVI_ts_tb[-1,-1]))
 names(mean_fire_NDVI_ts_df) <- c("fire_pol1","fire_pol2","fire_pol3")
 
 ## Make a time series object
-NDVI_fire_dat_dz <- zoo(mean_fire_NDVI_ts_df,dates_val) #create zoo object from data.frame and date sequence object
-plot(NDVI_fire_dat_dz,main="Times series of average NDVI in fire polygons for 2005",type="b")
-#Note the sudden decrease in NDVI. It is related to the fire event. It is an average so the decresease may not be
-#strong. Let's examine pixel level temporal profiles now.
-
-#Read in fire plygon
-fire_poly_sp <-readOGR(dsn=in_dir_var,sub(".shp","",fire_poly_shp_fname))
-proj4string(fire_poly_sp) <- CRS_reg
-plot(r_diff_NDVI_standardized,ext=extent(fire_poly_sp))
-plot(fire_poly_sp,add=T)
-spplot(fire_poly_sp)
-
-r_stack <- stack(r_NDVI_ts,r_fire_poly)
-inMemory(r_stack) #check that it is not stored in memory
-poly_fire_spdf <- as(crop(r_stack,extent(fire_poly_sp)),"SpatialPointsDataFrame")
-poly_fire_spdf <- rename(poly_fire_spdf,c("r_OVERLAY_ID_83_399_144_TEST_BURNT_83_144_399_reclassed"="fire_id"))
-table(poly_fire_spdf$fire_id)
-barplot(table(poly_fire_spdf$fire_id), main="Pixel count by fire polygon (1,2,3) in focus area")
-       
-## labels
-labelat <- c(0, 1, 2,3)
-
-labeltext <- c("background","fire1","fire2","fire3")
-
-spplot(poly_fire_spdf,"fire_id",        
-        main="Pixel count in small area",
-        col.regions=c("white","blue","yellow","red")#,
-        #colorkey = list(width=1,
-        #                space="right",
-        #                tick.number=5,
-        #                labels = list(at = labelat,labeltext)
-        #               )
-)
-
-#let's plot polygons one since it has a variety of pixels and was heavily affected
-
-#pix_fire_poly1_df  <- as.data.frame(t(subset(poly_fire_spdf,fire_id==1)))
-pix_fire_poly1_df  <- as.data.frame(t(as.data.frame(subset(poly_fire_spdf,fire_id==1))))
-names(pix_fire_poly1_df) <- paste0("pix_",1:ncol(pix_fire_poly1_df))
-NDVI_fire_dat_dz <- zoo(mean_fire_NDVI_ts_df,dates_val) #create zoo object from data.frame and date sequence object
-dim(NDVI_fire_dat_dz)
-
-pix_fire_poly1_dz <- zoo(pix_fire_poly1_df,dates_val) #create zoo object from data.frame and date sequence object
-#colnames(pix_fire_poly1_dz) <- names(pix_fire_poly1_df)
-##Explore Time series
-plot(pix_fire_poly1_dz[,1000:1010])
-acf(pix_fire_poly1_dz[,1000], type = "correlation") #burnt pixel
-acf(pix_fire_poly1_dz[,1007], type = "correlation") #Note the difference in the acf for unburnt pixel
 
 ###############################################
 ######## Let's carry out a PCA in T-mode #######
@@ -444,13 +243,5 @@ plot(stack(r_pc1,r_pc2))
 cor_pc <- layerStats(stack(r_pc1,r_NDVI_mean),'pearson', na.rm=T)
 cor_pc #PC1 correspond to the average mean by pixel as expected.
 plot(r_pc2)
-
-## Use animate function
-#animate(r_NDVI_ts, pause=0.25, n=1)
-
-#### Your turn: 
-#Compute the average using the ecoregions as zonal areas for PC1 and PC2
-#Plot averages in the PC1-PC2. Are these variables useful to separate the various ecoregions?
-#Correlate average times series for PC2 to the loadings. What does it tell you?
 
 ################### End of Script #########################
