@@ -6,12 +6,12 @@
 #
 #AUTHORS: Benoit Parmentier                                             
 #DATE CREATED: 03/15/2017 
-#DATE MODIFIED: 06/08/2017
+#DATE MODIFIED: 06/09/2017
 #Version: 1
 #PROJECT: AAG 2017
 #TO DO:
 #
-#COMMIT: modifying script to run on SESYNC HPC for testing and learning purpose
+#COMMIT: testing array job slurm 
 #
 #Links to investigate: 
 #https://stackoverflow.com/questions/29784829/r-raster-package-split-image-into-multiples
@@ -45,6 +45,7 @@ library(plyr) #data wrangling: various operations for splitting, combining data
 library(gstat) #spatial interpolation and kriging methods
 library(readxl) #functionalities to read in excel type data
 library(psych) #pca/eigenvector decomposition functionalities
+library(snow)
 
 ###### Functions used in this script
 
@@ -59,11 +60,11 @@ source(file.path(script_path,function_change_analysis))
 #####  Parameters and argument set up ###########
 
 #ARGS 1
-in_dir_NDVI <- "/research-home/bparmentier/Data/slurm_test/Exercise_2/data/NDVI_alaska_2005"
+in_dir_NDVI <- "/nfs/bparmentier-data/Data/SLURM_test/Exercise_2/data/NDVI_alaska_2005"
 #ARGS 2
-in_dir_var <- "/research-home/bparmentier/Data/slurm_test/Exercise_2/data"
+in_dir_var <- "/nfs/bparmentier-data/Data/SLURM_test/Exercise_2/data"
 #ARGS 3
-out_dir <- "/research-home/bparmentier/Data/slurm_test/Exercise_2/outputs"
+out_dir <- "/nfs/bparmentier-data/Data/SLURM_test/Exercise_2/outputs"
 
 #ARGS 4
 infile_ecoreg <- "wwf_terr_ecos_Alaska_ECOREGIONS_ECOSYS_ALB83.shp" #WWF ecoregions 2001 for Alaska
@@ -73,23 +74,30 @@ fire_poly_shp_fname <- "OVERLAY_ID_83_399_144_TEST_BURNT_83_144_399_reclassed.sh
 #ARGS 6
 NA_value <- -9999 #PARAM6
 #ARGS 7
-out_suffix <-"slurm_test_alaska_06082017" #output suffix for the files and ouptu folder #PARAM 8
+out_suffix <-"slurm_test_alaska_06092017" #output suffix for the files and ouptu folder #PARAM 8
 #ARGS 8
 create_out_dir_param=TRUE #PARAM9
 #ARGS 9
 date_range <- c("2005.01.01","2005.12.31") #NDVI Alaska, year 2005 (this is a 16 days product)
 
 #ARGS 10:
+num_cores <- 2 # set to two for now
 
-#ARGS 11: TILE INDEX this is from the array
+#ARGS 11
+infile_list_tiles <- "list_tiles.txt"
 
-# grab the array id value from the environment variable passed from sbatch
-slurm_arrayid <- Sys.getenv('SLURM_ARRAYID')
-# coerce the value to an integer
-tile_index <- as.numeric(slurm_arrayid)
-#tile_index <- 1  for testing
+#ARGS 12: 
+#TILE INDEX this is from the array
+# Get the the array id value from the environment variable passed from sbatch
 
-###
+SLURM_ARRAY_TASK_ID <- Sys.getenv('SLURM_ARRAY_TASK_ID')
+tile_index <- Sys.getenv("SLURM_ARRAY_TASK_ID") #this is should be an integer from 1:n, n is the number of tiles
+#slurm_arrayid <- Sys.getenv('SLURM_ARRAYID') #work with #SARRAY option in SLURM
+#tile_index <- as.numeric(slurm_arrayid) # coerce the value to an integer
+#tile_index <- 1  #for testing
+
+###########################
+#### Constants
 
 ## not set in the inputs args
 #region coordinate reference system
@@ -101,9 +109,9 @@ NA_flag_val <- NA_value #PARAM7
 
 ### PART I: READ AND PREPARE DATA FOR ANALYSES #######
 
-#get tile ID
+#get tile ID and add it to the outsuffix name
 
-out_suffix <- paste("tile_",tile_index,out_suffix)
+out_suffix <- paste("tile_",tile_index,"_",out_suffix,sep="")
 ## First create an output directory
 
 if(is.null(out_dir)){
@@ -118,6 +126,11 @@ if(create_out_dir_param==TRUE){
   setwd(out_dir) #use previoulsy defined directory
 }
 
+### Select the relevant tile to process
+df_tiles <- read.table(file.path(in_dir_var,infile_list_tiles),stringsAsFactors = F)
+tile_file_name <- df_tiles[tile_index,]
+tile_spdf <- readOGR(dsn=in_dir_var,sub(".shp","",tile_file_name)) 
+###
 
 ##### PART I: DISPLAY AND EXPLORE DATA ##############
 
@@ -126,7 +139,7 @@ if(create_out_dir_param==TRUE){
 lf_NDVI <- list.files(path=in_dir_NDVI, pattern="*.tif",full.names=T)
 r_NDVI_ts <- stack(lf_NDVI)
 
-plot(r_NDVI_ts)
+plot(r_NDVI_ts,1:6)
 #date_range <- c("2005.01.01","2005.12.31") #NDVI Alaska, year 2005 (this is a 16 days product)
   
 #generate dates for 16 days product
@@ -148,24 +161,17 @@ plot(r_var)
 crop_file_name <- paste("ndvi_","tile_",tile_index,".tif",sep="")
 r_NDVI_ts <- crop(r_NDVI_ts,tile_spdf,crop_file_name,overwrite=T)
 
-crop_r_var_file_name <- paste("r_var_","tile_",tile_index,".tif")
+crop_r_var_file_name <- paste("r_var_","tile_",tile_index,".tif",sep="")
 r_var <- crop(r_var,tile_spdf,crop_r_var_file_name,overwrite=T,sep="")
 
 ######### PART III: time series analyses #################
 
 # Perform PCA
 
-
 # Using LST time series perform similar analysis
 #r_NDVI_mean <- stackApply(r_NDVI_ts, indices=rep(1,23), fun=mean,na.rm=T) # works too but slower
 r_NDVI_mean <- mean(r_NDVI_ts, na.rm=TRUE) # mean by pixel
 projection(r_NDVI_ts) <- CRS_reg
-
-mean_fire_NDVI_ts_tb <- zonal(stack(r_NDVI_ts),r_fire_poly,fun="mean") #mean square error
-mean_fire_NDVI_ts_df <- as.data.frame(t(mean_fire_NDVI_ts_tb[-1,-1]))
-names(mean_fire_NDVI_ts_df) <- c("fire_pol1","fire_pol2","fire_pol3")
-
-## Make a time series object
 
 ###############################################
 ######## Let's carry out a PCA in T-mode #######
@@ -175,7 +181,7 @@ cor_mat_layerstats <- layerStats(r_NDVI_ts, 'pearson', na.rm=T)
 cor_matrix <- cor_mat_layerstats$`pearson correlation coefficient`
 class(cor_matrix)
 dim(cor_matrix)
-View(cor_matrix)
+#View(cor_matrix)
 image(cor_matrix)
 
 pca_mod <-principal(cor_matrix,nfactors=3,rotate="none")
@@ -218,7 +224,7 @@ plot(pca_mod$values,main="Scree plot: Variance explained",type="b")
 #By converting data and working with matrix:
 df_NDVI_ts <- as(r_NDVI_ts,"SpatialPointsDataFrame")
 df_NDVI_ts <- as.data.frame(df_NDVI_ts) #convert to data.frame because predict works on data.frame
-names(df_NDVI_ts) <- c(paste0("pc_",seq(1,23,1)),"x","y")
+#names(df_NDVI_ts) <- c(paste0("ndvi_",seq(1,23,1)),"x","y")
 names(df_NDVI_ts)
 
 pca_all <- as.data.frame(predict(pca_mod,df_NDVI_ts[,1:23])) ## Apply model object on the data.frame
@@ -230,14 +236,38 @@ class(pca_all) #Check type of class
 raster_name <- paste0("pc1_NDVI_2005_",out_suffix,".tif") #output raster name for component 1
 r_pc1<-rasterize(pca_all,r_NDVI_ts,"PC1",fun=min,overwrite=TRUE,
                   filename=raster_name)
-raster_name <- paste0("pc2_NDVI_2005.tif") #output raster name for component 2
+raster_name <- paste0("pc2_NDVI_2005_",out_suffix,".tif") #output raster name for component 2
 r_pc2<-rasterize(pca_all,r_NDVI_ts,"PC2",fun=min,overwrite=TRUE,
                  filename=raster_name)
 
 ### Using predict function: this is recommended for raster imagery!!
 # note the use of the 'index' argument
-r_pca <- predict(r_NDVI_ts, pca_mod, index=1:3,filename="pc_scores.tif",overwrite=T) # fast
-plot(r_pca)
+# let's use multiple cluster when processing with the predict functions
+r_pca <- predict(r_NDVI_ts, 
+                 pca_mod, 
+                 index=1:3,filename=paste0("pc_scores_",out_suffix,".tif"),
+                 overwrite=T) # fast
+
+### Set up for parrallel computing: this does not work on RStudio sesync ssh: solver this later
+#num_cores_avail <- detectCores()
+#if(num_cores_avail >=num_cores){
+#  num_cores_tmp <- num_cores_avail -1
+#}else{
+#  num_cores_tmp <- num_cores
+#}
+
+#beginCluster(n=num_cores_tmp) #if use beginCluster() without n set then it will use all the cores -1
+#beginCluster()
+#r_pca_test <- clusterR(r_NDVI_ts, raster::predict, args = list(model = pca_mod,
+#                                                          index=1:3,
+#                                                          filename=paste0("pc_scores_test",out_suffix,".tif"),
+#                                                          overwrite =T))
+#endCluster()
+#clusterR is some wrapper around the general clusterApply
+#more information on snow cluster see: http://www.sfu.ca/~sblay/R/snow.html
+
+
+#plot(r_pca)
 
 plot(stack(r_pc1,r_pc2))
 #layerStats(r_pc1,r_NDVI_mean )
