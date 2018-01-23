@@ -15,6 +15,7 @@
 ###Loading R library and packages                                                      
 
 library(parallel)
+library(rslurm)
 
 ##### Functions used in this script 
 
@@ -66,36 +67,92 @@ if(create_out_dir_param==TRUE){
   setwd(out_dir) #use previoulsy defined directory
 }
 
-infile_name_example <- "surveys.csv"
-download.file('https://github.com/datacarpentry/datacarpentry/raw/master/data/biology/surveys.csv',
-              file.path(out_dir,infile_name_example),'wget')
+
+#### READ OR CREATE DATA INPUT:
+
+# Create a data frame of mean/sd values for normal distributions
+pars <- data.frame(par_m = seq(-10, 10, length.out = 1000),
+                   par_sd = seq(0.1, 10, length.out = 1000))
 
 
-### Select the relevant tile to process
-surveys <- read.table(file.path(out_dir,infile_name_example),
-                        header=T,
-                        fill=TRUE,
-                        stringsAsFactors = F,
-                        sep=",")
+#### SOURCE OR CREATE FUNCTION TO RUN:
+# Create a function to parallelize
+ftest <- function(par_m, par_sd) {
+  samp <- rnorm(10^7, par_m, par_sd)
+  c(s_m = mean(samp), s_sd = sd(samp))
+}
 
-View(surveys)
 
-#surveys <- read.csv('surveys.csv')
-surveys_complete <- surveys[complete.cases(surveys), ]
+#### TEST 1: SLURM RUN WIHTOUT OPTIONS
 
-surveys_complete$species <- factor(surveys_complete$species)
-species_mean <- tapply(surveys_complete$wgt, surveys_complete$species, mean)
-species_max <- tapply(surveys_complete$wgt, surveys_complete$species, max)
-species_min <- tapply(surveys_complete$wgt, surveys_complete$species, min)
-species_sd <- tapply(surveys_complete$wgt, surveys_complete$species, sd)
-nlevels(surveys_complete$species) # or length(species_mean)
-surveys_summary <- data.frame(species=levels(surveys_complete$species),
-                              mean_wgt=species_mean,
-                              sd_wgt=species_sd,
-                              min_wgt=species_min,
-                              max_wgt=species_max)
-pdf("mean_per_species.pdf")
-barplot(surveys_summary$mean_wgt)
-dev.off()
+sjob1 <- slurm_apply(ftest, pars)
+print_job_status(sjob1)
+
+sjob1 <- slurm_apply(ftest, pars)
+print_job_status(sjob1)
+
+## Access output
+res <- get_slurm_out(sjob1, "table") #this return the outputs recombined as data.frame
+all.equal(pars, res) # Confirm correct output
+cleanup_files(sjob1) #remove everything
+
+#### TEST 2: SLURM RUN WITH OPTIONS AND USING ARRAY JOB
+
+## send your to multiple nodes:
+slurm_apply(f=ftest, 
+            params=pars, 
+            jobname = "parallel_test", 
+            nodes = 3, 
+            cpus_per_node = 8,
+            add_objects = NULL, 
+            pkgs = rev(.packages()), 
+            libPaths = NULL,
+            slurm_options = list(), 
+            submit = TRUE)
+
+#### More options for SLURM
+#SBATCH --job-name=bp_workshop_ex2_array_test    # Job name
+#SBATCH --mail-type=ALL                          # Mail events (NONE, BEGIN, END, FAIL, ALL)
+#SBATCH --mail-user=bparmentier@sesync.org       # Where to send mail
+#SBATCH --time=00:50:00                          # Time limit hrs:min:sec
+#SBATCH --output=bp_workshop_ex2_array_test_%A_%a.out   # Standard output from console
+#SBATCH --error=bp_workshop_ex2_array_test_%A_%a.err   # Error log 
+#SBATCH --partition=sesynctest        # queue name, this is for debugging and testing
+
+### Need to create a list with slurm options:
+options_list = list("sesyncshared",             # partition (equivalent to queue) to submit job
+                    "ALL",                      # mail-type: Mail events (NONE, BEGIN, END, FAIL, ALL)
+                    "bparmentier@sesync.org",   # mail-user: where to send email
+                    "00:25:00",                 # Time limit hrs:min:sec
+                    "bp_workshop_ex2_array_test_%A_%a.out",
+                    "bp_workshop_ex2_array_test_%A_%a.err")
+                    
+                    ##Now assign option name for slurm job
+names(options_list) <- c("partition",
+                         "mails-type",
+                         "mail-user",
+                         "time",
+                         "output",
+                         "error")
+
+### Now submit job with full information
+sjobs2 <- slurm_apply(f=ftest, 
+                      params=pars, 
+                      jobname = "parallel_test2", 
+                      nodes = 3, 
+                      cpus_per_node = 8,
+                      add_objects = NULL, 
+                      pkgs = rev(.packages()), 
+                      libPaths = NULL,
+                      slurm_options = options_list, 
+                      submit = TRUE)
+
+#$bparmentier@sshgw02:~$ squeue
+#JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+#293916_0 sesyncsha parallel bparment  R       0:05      1 pn25
+#293916_1 sesyncsha parallel bparment  R       0:05      1 pn27
+#293916_2 sesyncsha parallel bparment  R       0:05      1 pn28
+#292138 sesyncsha canopy_o jzambran  R 4-01:14:35      1 pn26
+#292081 sesyncsha run_seed phmarcha  R 19-10:19:45      1 pn30
 
 ################### END OF SCRIPT ##################
