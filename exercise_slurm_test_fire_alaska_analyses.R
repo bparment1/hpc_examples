@@ -21,7 +21,7 @@
 
 ###Loading R library and packages                                                      
 
-library(sp) # spatial/geographfic objects and functions
+library(sp) # spatial/geographic objects and functions
 library(rgdal) #GDAL/OGR binding for R with functionalities
 library(spdep) #spatial analyses operations, functions etc.
 library(gtools) # contains mixsort and other useful functions
@@ -42,20 +42,40 @@ library(foreign) # import datasets from SAS, spss, stata and other sources
 library(gdata) #read xls, dbf etc., not recently updated but useful
 library(classInt) #methods to generate class limits
 library(plyr) #data wrangling: various operations for splitting, combining data
-library(gstat) #spatial interpolation and kriging methods
+#library(gstat) #spatial interpolation and kriging methods
 library(readxl) #functionalities to read in excel type data
 library(psych) #pca/eigenvector decomposition functionalities
 library(snow)
+library(sf)
 
 ###### Functions used in this script
 
+create_dir_fun <- function(out_dir,out_suffix){
+  #if out_suffix is not null then append out_suffix string
+  if(!is.null(out_suffix)){
+    out_name <- paste("output_",out_suffix,sep="")
+    out_dir <- file.path(out_dir,out_name)
+  }
+  #create if does not exists
+  if(!file.exists(out_dir)){
+    dir.create(out_dir)
+  }
+  return(out_dir)
+}
+
+load_obj <- function(f){
+  env <- new.env()
+  nm <- load(f, env)[1]
+  env[[nm]]
+}
+
 function_preprocessing_and_analyses <- "fire_alaska_analyses_preprocessing_functions_03102017.R" #PARAM 1
 function_analyses <- "exercise2_fire_alaska_analyses_functions_03232017.R" #PARAM 1
-function_change_analysis <- "exercise2_change_analyses_functions_04082017b.R"
+#function_change_analysis <- "exercise2_change_analyses_functions_04082017b.R"
 script_path <- "/nfs/bparmentier-data/Data/slurm_test/scripts"
 source(file.path(script_path,function_preprocessing_and_analyses)) #source all functions used in this script 1.
 source(file.path(script_path,function_analyses)) #source all functions used in this script 1.
-source(file.path(script_path,function_change_analysis))
+#source(file.path(script_path,function_change_analysis))
        
 #####  Parameters and argument set up ###########
 
@@ -74,7 +94,7 @@ fire_poly_shp_fname <- "OVERLAY_ID_83_399_144_TEST_BURNT_83_144_399_reclassed.sh
 #ARGS 6
 NA_value <- -9999 #PARAM6
 #ARGS 7
-out_suffix <-"slurm_test_alaska_06092017" #output suffix for the files and ouptu folder #PARAM 8
+out_suffix <-"slurm_test_alaska_01252018" #output suffix for the files and ouptu folder #PARAM 8
 #ARGS 8
 create_out_dir_param=TRUE #PARAM9
 #ARGS 9
@@ -126,10 +146,12 @@ if(create_out_dir_param==TRUE){
   setwd(out_dir) #use previoulsy defined directory
 }
 
-### Select the relevant tile to process
+### Select the relevant tile to process us
 df_tiles <- read.table(file.path(in_dir_var,infile_list_tiles),stringsAsFactors = F)
 tile_file_name <- df_tiles[tile_index,]
-tile_spdf <- readOGR(dsn=in_dir_var,sub(".shp","",tile_file_name)) 
+#tile_spdf <- readOGR(dsn=in_dir_var,sub(".shp","",tile_file_name)) 
+tile_sf <- st_read(file.path(in_dir_var,tile_file_name))
+tile_spdf <- as(tile_sf, "Spatial")
 ###
 
 ##### PART I: DISPLAY AND EXPLORE DATA ##############
@@ -139,8 +161,15 @@ tile_spdf <- readOGR(dsn=in_dir_var,sub(".shp","",tile_file_name))
 lf_NDVI <- list.files(path=in_dir_NDVI, pattern="*.tif",full.names=T)
 r_NDVI_ts <- stack(lf_NDVI)
 
+### Plot tiles being processed:
+plot(r_NDVI_ts,y=1)
+plot(tile_sf,add=T,border="red",col=NA)
+text(gCentroid(tile_spdf),paste0("tile ",tile_index, " processed"))
+st_centroid(tile_sf)
+#text(st_centroid(tile_sf),paste0("tile ",tile_index, " processed"))
+
 plot(r_NDVI_ts,1:6)
-#date_range <- c("2005.01.01","2005.12.31") #NDVI Alaska, year 2005 (this is a 16 days product)
+date_range <- c("2005.01.01","2005.12.31") #NDVI Alaska, year 2005 (this is a 16 days product)
   
 #generate dates for 16 days product
 dates_val <- generate_dates_by_step(date_range[1],date_range[2],16)$dates #NDVI Katrina
@@ -266,7 +295,6 @@ r_pca <- predict(r_NDVI_ts,
 #clusterR is some wrapper around the general clusterApply
 #more information on snow cluster see: http://www.sfu.ca/~sblay/R/snow.html
 
-
 #plot(r_pca)
 
 plot(stack(r_pc1,r_pc2))
@@ -274,5 +302,11 @@ plot(stack(r_pc1,r_pc2))
 cor_pc <- layerStats(stack(r_pc1,r_NDVI_mean),'pearson', na.rm=T)
 cor_pc #PC1 correspond to the average mean by pixel as expected.
 plot(r_pc2)
+
+### Save files before finishing the script
+
+outfile_name <- paste("cor_matrix_",out_suffix,".txt",sep="")
+write.table(cor_matrix,sep=",",file=outfile_name)
+saveRDS(pca_mod,"pca_mod.RDS")
 
 ################### End of Script #########################
